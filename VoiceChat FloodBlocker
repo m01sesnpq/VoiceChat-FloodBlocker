@@ -1,0 +1,156 @@
+/*
+	Editado por: onixs
+	https://monsterskill.com.br/
+    Créditos: F@nt0M pela assistência na implementação.
+*/
+
+#include <amxmodx>
+#include <cromchat>
+#tryinclude <reapi>
+
+#if !defined _reapi_included
+#include <VtcApi>
+#endif
+
+#define BLOCK_SPAM_CMD                           // Bloquear spam de comandos
+
+const TIME_CHECK                = 10;            // Após quantos segundos de voz contínua o bloqueio de voz será ativado
+const TIME_BLOCK                = 60;            // Por quantos segundos o jogador ficará bloqueado
+const Float:TIME_CHECK_MUTED_PL = 30.0;          // Intervalo entre verificações de jogadores bloqueados (em segundos)
+
+#if defined BLOCK_SPAM_CMD
+    const MIN_CMD_DELAY = 2;                     // Atraso mínimo entre o uso do chat por voz (em segundos)
+#endif
+
+const CHECK_MUTED_PL_TASKID = 200;
+
+enum _:USER_DATA {
+    START_SPEAK,
+    LAST_SPEAK,
+    BAN_TIME,
+    bool:MUTED
+};
+
+new g_PlayerInfo[MAX_PLAYERS + 1][USER_DATA];
+
+#define vtc_get_user_block(%0)    g_PlayerInfo[%0][MUTED]
+
+public plugin_init()
+{
+    register_plugin("Bloqueador de Flood de Voz", "1.0.2", "onixs | d3m37r4");
+
+    CC_SetPrefix("[^4Bloqueador de Flood de Voz^1]");
+
+#if defined _reapi_included
+    if(!has_vtc())
+        set_fail_state("Requer o plugin meta VoiceTranscoder!");
+#endif
+
+    set_task(TIME_CHECK_MUTED_PL, "task_CheckMutedPlayers", CHECK_MUTED_PL_TASKID, .flags = "b");
+}
+
+public client_putinserver(iIndex)
+{
+    arrayset(g_PlayerInfo[iIndex], 0, USER_DATA);
+    remove_task(iIndex);
+}
+
+public VTC_OnClientStartSpeak(const iIndex)
+{
+    new iSysTime = get_systime(0);
+
+#if defined BLOCK_SPAM_CMD
+    if((iSysTime - g_PlayerInfo[iIndex][LAST_SPEAK]) < MIN_CMD_DELAY)
+    {
+        client_print_color(iIndex, TEAM_COLOR, "Você está usando o microfone com muita frequência! Aguarde:^4 %d^1 seg.", MIN_CMD_DELAY);
+        return;
+    }
+#endif
+
+    if(vtc_get_user_block(iIndex))
+    {    
+        new iSecLeft = g_PlayerInfo[iIndex][BAN_TIME] - iSysTime;
+
+        if(iSecLeft <= 0)
+        {
+            client_print_color(iIndex, TEAM_COLOR, "^4O bloqueio do microfone expirou, aguarde as atualizações dos dados^1."); 
+        } else {
+            client_print_color(iIndex, TEAM_COLOR, "O microfone será disponibilizado em:^4 %d^1 seg.", iSecLeft);    
+        }
+    } else {
+        g_PlayerInfo[iIndex][START_SPEAK] = iSysTime;
+        
+        if(!task_exists(iIndex))
+        {
+            new PlData[1];
+
+            PlData[0] = get_user_userid(iIndex);
+            set_task(float(TIME_CHECK), "task_BlockPlayerVoice", iIndex, PlData, sizeof PlData);
+        }
+    }
+}
+
+public VTC_OnClientStopSpeak(const iIndex)
+{
+    new iSysTime = get_systime(0);
+
+    g_PlayerInfo[iIndex][LAST_SPEAK] = iSysTime;
+
+    if((iSysTime - g_PlayerInfo[iIndex][START_SPEAK]) < TIME_CHECK)
+        remove_task(iIndex);
+}
+
+public task_BlockPlayerVoice(PlData[1], iIndex)
+{
+    if(!is_user_connected(iIndex) || PlData[0] != get_user_userid(iIndex))
+        return;
+
+    if(vtc_get_user_block(iIndex) || !VTC_IsClientSpeaking(iIndex))
+        return;
+
+    vtc_set_user_mute(iIndex, TIME_BLOCK);
+    remove_task(iIndex);
+}
+
+public task_CheckMutedPlayers()
+{
+    new aPl[MAX_PLAYERS], iPlNum;
+
+    get_players(aPl, iPlNum); 
+
+    for(new i, iSysTime = get_systime(0); i < iPlNum; ++i)
+    {
+        if(!vtc_get_user_block(aPl[i]))
+            continue;
+
+        if((g_PlayerInfo[aPl[i]][BAN_TIME] - iSysTime) > 0)
+            continue;
+
+        vtc_set_user_unmute(aPl[i]);
+    }
+}
+
+vtc_set_user_mute(const pIndex, const iBlockTime)
+{
+    new szName[MAX_NAME_LENGTH];
+
+    get_user_name(pIndex, szName, charsmax(szName));
+    client_print_color(pIndex, TEAM_COLOR, "Seu microfone foi bloqueado! Uso indevido. Aguarde:^4 %d^1 seg.", iBlockTime);
+    log_amx("O jogador %s teve seu microfone bloqueado por %d segundos.", szName, iBlockTime);
+
+    g_PlayerInfo[pIndex][BAN_TIME] = get_systime(0) + iBlockTime;
+    g_PlayerInfo[pIndex][MUTED] = true;
+
+    VTC_MuteClient(pIndex);
+    client_cmd(pIndex, "-voicerecord");
+}
+
+vtc_set_user_unmute(const pIndex)
+{
+    client_print_color(pIndex, TEAM_COLOR, "^4O bloqueio do microfone expirou, você já pode utilizá-lo^1!");
+
+    g_PlayerInfo[pIndex][BAN_TIME] = 0;
+    g_PlayerInfo[pIndex][MUTED] = false;
+
+    VTC_UnmuteClient(pIndex);
+}
