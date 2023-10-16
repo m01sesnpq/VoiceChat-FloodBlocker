@@ -1,9 +1,4 @@
-/*
-	Editado por: onixs
-	https://monsterskill.com.br/
-    Créditos: F@nt0M pela assistência na implementação.
-*/
-
+// RECRUTA PEGA BANDEIRA 
 #include <amxmodx>
 #include <cromchat>
 #tryinclude <reapi>
@@ -37,7 +32,7 @@ new g_PlayerInfo[MAX_PLAYERS + 1][USER_DATA];
 
 public plugin_init()
 {
-    register_plugin("Bloqueador de Flood de Voz", "1.0.2", "onixs | d3m37r4");
+    register_plugin("Bloqueador de Flood de Voz", "1.0.2", "RECRUTA");
 
     CC_SetPrefix("[^4Bloqueador de Flood de Voz^1]");
 
